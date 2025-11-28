@@ -5,6 +5,8 @@ const app = express();
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
+
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
@@ -72,6 +74,86 @@ async function run() {
 
       const result = await parcelsCollection.deleteOne(query);
       res.send(result);
+    })
+
+
+    //payment related apis
+
+     app.post('/payment-checkout-session', async(req, res)=>{
+
+      const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.cost)* 100;
+
+      const session = await stripe.checkout.sessions.create({
+    line_items: [
+      {
+       price_data: {
+        currency: 'USD',
+        unit_amount: amount,
+        product_data: {
+          name: `Please pay for : ${paymentInfo.parcelName}`
+        }
+       },
+        
+        quantity: 1,
+      },
+    ],
+   
+    mode: 'payment',
+    metadata: {
+      parcelId: paymentInfo.parcelId
+    },
+     customer_email: paymentInfo.senderEmail,
+    success_url: `${process.env.SITE_DOMAON}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.SITE_DOMAON}/dashboard/payment-cancelled`,
+  });
+
+  res.send({url: session.url})
+
+    })
+
+
+
+    //old
+    app.post('/create-checkout-session', async(req, res)=>{
+
+      const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.cost)* 100;
+
+      const session = await stripe.checkout.sessions.create({
+    line_items: [
+      {
+       price_data: {
+        currency: 'USD',
+        unit_amount: amount,
+        product_data: {
+          name: paymentInfo.parcelName
+        }
+       },
+        
+        quantity: 1,
+      },
+    ],
+    customer_email: paymentInfo.senderEmail,
+    mode: 'payment',
+    metadata: {
+      parcelId: paymentInfo.parcelId
+    },
+    success_url: `${process.env.SITE_DOMAON}/dashboard/payment-success`,
+    cancel_url: `${process.env.SITE_DOMAON}/dashboard/payment-cancelled`,
+  });
+
+  console.log(session);
+  res.send({url: session.url})
+
+    })
+
+
+    app.patch('/payment-success', async(req, res)=>{
+      const sessionId = req.query.session_id;
+      console.log('session id', sessionId);
+
+      res.send({success: true})
     })
 
     // Send a ping to confirm a successful connection
