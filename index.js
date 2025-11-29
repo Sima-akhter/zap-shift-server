@@ -33,6 +33,7 @@ async function run() {
 
     const db = client.db('zap_shift_db');
     const parcelsCollection = db.collection('parcels');
+    const paymentCollection = db.collection('payments');
 
     //parcel api
     app.get('/parcels', async(req, res)=>{
@@ -137,7 +138,8 @@ async function run() {
     customer_email: paymentInfo.senderEmail,
     mode: 'payment',
     metadata: {
-      parcelId: paymentInfo.parcelId
+      parcelId: paymentInfo.parcelId,
+      parcelName: paymentInfo.parcelName
     },
     success_url: `${process.env.SITE_DOMAON}/dashboard/payment-success`,
     cancel_url: `${process.env.SITE_DOMAON}/dashboard/payment-cancelled`,
@@ -151,9 +153,38 @@ async function run() {
 
     app.patch('/payment-success', async(req, res)=>{
       const sessionId = req.query.session_id;
-      console.log('session id', sessionId);
 
-      res.send({success: true})
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      console.log('session retrieve', session);
+      if(session.payment_status === 'paid'){
+        const id = session.metadata.parcelId;
+        const query = {_id: new ObjectId(id)}
+        const update = {
+          $set: {
+            paymentStatus: 'paid',
+          }
+        }
+
+        const result = await parcelsCollection.updateOne(query, update);
+
+        const payment = {
+          amount: session.amount_total/100,
+          currency: session.currency,
+          customerEmail: session.customer_email,
+          parcelId: session.metadata.parcelName,
+          transactionId: session.payment_intent,
+          paymentStatus: session.payment_status,
+          paidAt: new Date(),
+          trackingId: ''
+        }
+
+        if(session.payment_status === 'paid'){
+         const resultPayment = await paymentCollection.insertOne(payment)
+         res.send({success:true, modifyParcel: result, paymentInfo: resultPayment})
+        }
+
+      }
+      res.send({success: false})
     })
 
     // Send a ping to confirm a successful connection
